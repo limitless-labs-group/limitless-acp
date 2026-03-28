@@ -1,0 +1,25 @@
+{
+  "name": "browse_markets",
+  "description": "Search and browse active prediction markets on Limitless Exchange. Returns market titles, current odds, volume, liquidity, and expiry times. Supports filtering by query string, category, and trade type.",
+  "jobFee": 0.01,
+  "jobFeeType": "fixed",
+  "requiredFunds": false,
+  "requirement": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search query to filter markets (e.g. 'BTC', 'election', 'ETH above')"
+      },
+      "tradeType": {
+        "type": "string",
+        "enum": ["amm", "clob", "group"],
+        "description": "Filter by trade type"
+      },
+      "limit": {
+        "type": "number",
+        "description": "Max number of markets to return (default 20, max 50)"
+      }
+    }
+  }
+}

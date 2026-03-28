@@ -1,0 +1,35 @@
+{
+  "name": "place_bet",
+  "description": "Place a bet on a prediction market outcome on Limitless Exchange. Supports YES/NO outcomes on CLOB markets. Funds are transferred and the order is executed on your behalf.",
+  "jobFee": 0.02,
+  "jobFeeType": "percentage",
+  "requiredFunds": true,
+  "requirement": {
+    "type": "object",
+    "properties": {
+      "marketSlug": {
+        "type": "string",
+        "description": "Market slug identifier (from browse_markets)"
+      },
+      "side": {
+        "type": "string",
+        "enum": ["YES", "NO"],
+        "description": "Outcome to bet on"
+      },
+      "amount": {
+        "type": "number",
+        "description": "Amount in USD to bet"
+      },
+      "limitPriceCents": {
+        "type": "number",
+        "description": "Max price per contract in cents (1-99). If omitted, uses current market price as ceiling."
+      },
+      "orderType": {
+        "type": "string",
+        "enum": ["GTC", "FOK"],
+        "description": "Order type. FOK (fill-or-kill) is default and recommended."
+      }
+    },
+    "required": ["marketSlug", "side", "amount"]
+  }
+}

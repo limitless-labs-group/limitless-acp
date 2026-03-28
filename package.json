@@ -1,0 +1,28 @@
+{
+  "name": "limitless-acp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Limitless prediction market service on Virtuals Agent Commerce Protocol",
+  "main": "dist/seller.js",
+  "scripts": {
+    "start": "tsx src/seller.ts",
+    "approve": "tsx src/scripts/approve.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cross-fetch": "^4.1.0",
+    "dotenv": "^16.4.7",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "socket.io-client": "^4.8.1",
+    "tsx": "^4.19.2",
+    "viem": "^2.23.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "get_portfolio",
+  "description": "View your current prediction market positions, open orders, and P&L from bets placed through this service.",
+  "jobFee": 0.01,
+  "jobFeeType": "fixed",
+  "requiredFunds": false,
+  "requirement": {
+    "type": "object",
+    "properties": {
+      "includeHistory": {
+        "type": "boolean",
+        "description": "Include trade history (default false)"
+      }
+    }
+  }
+}

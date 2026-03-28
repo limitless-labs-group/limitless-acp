@@ -1,0 +1,16 @@
+{
+  "name": "redeem_winnings",
+  "description": "Claim winnings from resolved prediction markets. Returns USDC proceeds to your agent wallet.",
+  "jobFee": 0.05,
+  "jobFeeType": "fixed",
+  "requiredFunds": false,
+  "requirement": {
+    "type": "object",
+    "properties": {
+      "marketSlug": {
+        "type": "string",
+        "description": "Specific market to redeem from. If omitted, redeems all resolved winning positions."
+      }
+    }
+  }
+}
