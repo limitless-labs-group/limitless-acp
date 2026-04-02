@@ -2,234 +2,187 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { connectAcpSocket } from "./acpSocket.js";
-import {
-  acceptOrRejectJob,
-  requestPayment,
-  deliverJob,
-  getMyAgentInfo,
-} from "./acpApi.js";
+import AcpClientDefault, {
+  AcpContractClientV2,
+  AcpJob,
+  AcpJobPhases,
+  AcpMemo,
+  baseAcpConfigV2,
+  FareAmount,
+  MemoType,
+} from "@virtuals-protocol/acp-node";
+
+// The SDK's CJS type declarations don't expose a constructable default under
+// Node16 moduleResolution. The class IS constructable at runtime.
+const AcpClient = AcpClientDefault as unknown as new (options: {
+  acpContractClient: Awaited<ReturnType<typeof AcpContractClientV2.build>>;
+  onNewTask?: (job: AcpJob, memoToSign?: AcpMemo) => void;
+  onEvaluate?: (job: AcpJob) => void;
+}) => unknown;
 import { loadOffering, listOfferings } from "./offeringLoader.js";
-import {
-  AcpJobPhase,
-  type AcpJobEventData,
-  type JobContext,
-  type ExecuteJobResult,
-} from "./acpTypes.js";
-import {
-  checkForExistingProcess,
-  writePidToConfig,
-  removePidFromConfig,
-} from "./acpConfig.js";
+import { getWallet } from "./limitless/wallet.js";
 import { logger } from "./logger.js";
+import type { JobContext } from "./acpTypes.js";
 
-const ACP_URL = process.env.ACP_SOCKET_URL || "https://acpx.virtuals.io";
+const config = baseAcpConfigV2;
 
-function setupCleanupHandlers(): void {
-  const cleanup = () => {
-    removePidFromConfig();
-  };
-
-  process.on("exit", cleanup);
-  process.on("SIGINT", () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on("uncaughtException", (err) => {
-    logger.error({ err }, "Uncaught exception");
-    cleanup();
+function requireEnv(key: string): string {
+  const value = process.env[key]?.trim();
+  if (!value) {
+    logger.fatal(`Missing required env var: ${key}`);
     process.exit(1);
-  });
-  process.on("unhandledRejection", (reason) => {
-    logger.error({ reason }, "Unhandled rejection");
-    cleanup();
-    process.exit(1);
-  });
+  }
+  return value;
 }
 
-function resolveOfferingName(data: AcpJobEventData): string | undefined {
+async function handleRequest(
+  job: AcpJob,
+  _memoToSign: AcpMemo,
+  limitlessWalletAddress: `0x${string}`,
+): Promise<void> {
+  const { id: jobId, name: jobName } = job;
+
+  if (!jobName) {
+    logger.warn({ jobId }, "No job name — rejecting");
+    await job.reject("Invalid offering");
+    return;
+  }
+
   try {
-    const negotiationMemo = data.memos.find(
-      (m) => m.nextPhase === AcpJobPhase.NEGOTIATION,
-    );
-    if (negotiationMemo) {
-      const parsed = JSON.parse(negotiationMemo.content);
-      return parsed.name || parsed.serviceName;
-    }
-  } catch {
-    return undefined;
-  }
-}
+    const { config: offeringConfig, handlers } = await loadOffering(jobName);
+    const requirements = (job.requirement ?? {}) as Record<string, unknown>;
 
-function resolveServiceRequirements(
-  data: AcpJobEventData,
-): Record<string, unknown> {
-  const negotiationMemo = data.memos.find(
-    (m) => m.nextPhase === AcpJobPhase.NEGOTIATION,
-  );
-  if (negotiationMemo) {
-    try {
-      const parsed = JSON.parse(negotiationMemo.content);
-      return parsed.requirement ?? parsed.serviceRequirement ?? {};
-    } catch {
-      return {};
-    }
-  }
-  return {};
-}
+    if (handlers.validateRequirements) {
+      const result = await handlers.validateRequirements(requirements);
+      const isValid = typeof result === "boolean" ? result : result.valid;
+      const reason =
+        typeof result === "boolean"
+          ? "Validation failed"
+          : (result.reason ?? "Validation failed");
 
-async function handleNewTask(data: AcpJobEventData): Promise<void> {
-  const jobId = data.id;
-
-  logger.info(
-    {
-      jobId,
-      phase: AcpJobPhase[data.phase] ?? data.phase,
-      client: data.clientAddress,
-      price: data.price,
-    },
-    "New task received",
-  );
-
-  // REQUEST phase: validate, accept/reject, request payment
-  if (data.phase === AcpJobPhase.REQUEST) {
-    if (!data.memoToSign) return;
-
-    const negotiationMemo = data.memos.find(
-      (m) => m.id === Number(data.memoToSign),
-    );
-    if (negotiationMemo?.nextPhase !== AcpJobPhase.NEGOTIATION) return;
-
-    const offeringName = resolveOfferingName(data);
-    const requirements = resolveServiceRequirements(data);
-
-    if (!offeringName) {
-      await acceptOrRejectJob(jobId, {
-        accept: false,
-        reason: "Invalid offering name",
-      });
-      return;
-    }
-
-    try {
-      const { config, handlers } = await loadOffering(offeringName);
-
-      if (handlers.validateRequirements) {
-        const validationResult =
-          await handlers.validateRequirements(requirements);
-
-        let isValid: boolean;
-        let reason: string | undefined;
-
-        if (typeof validationResult === "boolean") {
-          isValid = validationResult;
-          reason = isValid ? undefined : "Validation failed";
-        } else {
-          isValid = validationResult.valid;
-          reason = validationResult.reason;
-        }
-
-        if (!isValid) {
-          logger.info(
-            { jobId, offering: offeringName, reason },
-            "Validation failed — rejecting",
-          );
-          await acceptOrRejectJob(jobId, {
-            accept: false,
-            reason: reason || "Validation failed",
-          });
-          return;
-        }
+      if (!isValid) {
+        logger.info({ jobId, offering: jobName, reason }, "Validation failed — rejecting");
+        await job.reject(reason);
+        return;
       }
+    }
 
-      await acceptOrRejectJob(jobId, {
-        accept: true,
-        reason: "Job accepted",
-      });
+    await job.accept("Job accepted");
 
-      const funds =
-        config.requiredFunds && handlers.requestAdditionalFunds
-          ? await handlers.requestAdditionalFunds(requirements)
-          : undefined;
-
-      const paymentReason = handlers.requestPayment
-        ? await handlers.requestPayment(requirements)
-        : (funds?.content ?? "Request accepted");
-
-      await requestPayment(jobId, {
-        content: paymentReason,
-        payableDetail: funds
-          ? {
-              amount: funds.amount,
-              tokenAddress: funds.tokenAddress,
-              recipient: funds.recipient,
-            }
-          : undefined,
-      });
-    } catch (err) {
-      logger.error({ jobId, err }, "Error processing REQUEST phase");
+    if (offeringConfig.requiredFunds && handlers.getRequiredFunds) {
+      const funds = await handlers.getRequiredFunds(requirements);
+      await job.createPayableRequirement(
+        funds.reason,
+        MemoType.PAYABLE_REQUEST,
+        new FareAmount(funds.amount, config.baseFare),
+        limitlessWalletAddress,
+      );
+      logger.info(
+        { jobId, amount: funds.amount },
+        "Payable requirement created — awaiting buyer payment",
+      );
+    } else {
+      await job.createRequirement("Request accepted, proceeding with execution");
+    }
+  } catch (err) {
+    logger.error({ jobId, err }, "Error handling REQUEST phase");
+    try {
+      await job.reject("Internal error processing request");
+    } catch {
+      /* best-effort reject */
     }
   }
+}
 
-  // TRANSACTION phase: execute offering and deliver result
-  if (data.phase === AcpJobPhase.TRANSACTION) {
-    const offeringName = resolveOfferingName(data);
-    const requirements = resolveServiceRequirements(data);
+async function handleTransaction(job: AcpJob): Promise<void> {
+  const { id: jobId, name: jobName } = job;
 
-    if (!offeringName) {
-      logger.warn({ jobId }, "TRANSACTION phase but no offering resolved");
+  if (!jobName) {
+    logger.warn({ jobId }, "TRANSACTION phase but no offering name");
+    return;
+  }
+
+  try {
+    const { handlers } = await loadOffering(jobName);
+    const requirements = (job.requirement ?? {}) as Record<string, unknown>;
+
+    const context: JobContext = {
+      jobId: job.id,
+      clientAddress: job.clientAddress,
+      providerAddress: job.providerAddress,
+      netPayableAmount: job.netPayableAmount,
+    };
+
+    logger.info({ jobId, offering: jobName }, "Executing offering");
+    const result = await handlers.executeJob(requirements, context);
+
+    if (result.error) {
+      const { reason, refundAmount } = result.error;
+      logger.warn({ jobId, reason, refundAmount }, "Offering execution failed");
+
+      if (refundAmount && refundAmount > 0) {
+        await job.rejectPayable(
+          reason,
+          new FareAmount(refundAmount, config.baseFare),
+        );
+        logger.info({ jobId, refundAmount }, "Job rejected with refund");
+      } else {
+        await job.reject(reason);
+      }
       return;
     }
 
+    const deliverable =
+      typeof result.deliverable === "string"
+        ? result.deliverable
+        : JSON.stringify(result.deliverable);
+
+    if (result.returnAmount && result.returnAmount > 0) {
+      await job.deliverPayable(
+        deliverable,
+        new FareAmount(result.returnAmount, config.baseFare),
+      );
+    } else {
+      await job.deliver(deliverable);
+    }
+
+    logger.info({ jobId }, "Job delivered");
+  } catch (err) {
+    logger.error({ jobId, err }, "Error delivering job");
     try {
-      const { handlers } = await loadOffering(offeringName);
-
-      const context: JobContext = {
-        jobId: data.id,
-        clientAddress: data.clientAddress,
-        providerAddress: data.providerAddress,
-        price: data.price,
-      };
-
-      logger.info(
-        { jobId, offering: offeringName },
-        "Executing offering (TRANSACTION)",
-      );
-      const result: ExecuteJobResult = await handlers.executeJob(
-        requirements,
-        context,
-      );
-
-      await deliverJob(jobId, {
-        deliverable: result.deliverable,
-        payableDetail: result.payableDetail,
-      });
-      logger.info({ jobId }, "Job delivered");
-    } catch (err) {
-      logger.error({ jobId, err }, "Error delivering job");
+      const refundAmount = job.netPayableAmount;
+      if (refundAmount && refundAmount > 0) {
+        await job.rejectPayable(
+          "Internal error executing job. Funds refunded.",
+          new FareAmount(refundAmount, config.baseFare),
+        );
+        logger.info({ jobId, refundAmount }, "Unhandled error — refunded buyer");
+      } else {
+        await job.reject("Internal error executing job");
+      }
+    } catch {
+      /* best-effort reject/refund */
     }
   }
 }
 
 async function main() {
-  checkForExistingProcess();
-  writePidToConfig(process.pid);
-  setupCleanupHandlers();
+  const walletPrivateKey = requireEnv("WHITELISTED_WALLET_PRIVATE_KEY");
+  const agentWalletAddress = requireEnv("SELLER_AGENT_WALLET_ADDRESS");
+  const entityId = parseInt(requireEnv("SELLER_ENTITY_ID"), 10);
 
-  let walletAddress: string;
+  if (isNaN(entityId)) {
+    logger.fatal("SELLER_ENTITY_ID must be a valid number");
+    process.exit(1);
+  }
+
+  let limitlessWalletAddress: `0x${string}`;
   try {
-    const agentData = await getMyAgentInfo();
-    walletAddress = agentData.walletAddress;
-    logger.info(
-      { name: agentData.name, wallet: walletAddress },
-      "Agent info loaded",
-    );
+    const { account } = getWallet();
+    limitlessWalletAddress = account.address;
+    logger.info({ address: limitlessWalletAddress }, "Limitless trading wallet ready");
   } catch (err) {
-    logger.fatal({ err }, "Failed to resolve agent info");
+    logger.fatal({ err }, "Failed to initialize Limitless trading wallet");
     process.exit(1);
   }
 
@@ -239,21 +192,43 @@ async function main() {
     "Available offerings",
   );
 
-  connectAcpSocket({
-    acpUrl: ACP_URL,
-    walletAddress,
-    callbacks: {
-      onNewTask: (data) => {
-        handleNewTask(data).catch((err) =>
-          logger.error({ err }, "Unhandled error in handleNewTask"),
-        );
-      },
-      onEvaluate: (data) => {
-        logger.info(
-          { jobId: data.id },
-          "onEvaluate received — no action needed",
-        );
-      },
+  new AcpClient({
+    acpContractClient: await AcpContractClientV2.build(
+      walletPrivateKey as `0x${string}`,
+      entityId,
+      agentWalletAddress as `0x${string}`,
+      config,
+    ),
+    onNewTask: async (job: AcpJob, memoToSign?: AcpMemo) => {
+      const { id: jobId, phase: jobPhase, name: jobName } = job;
+
+      if (!memoToSign) {
+        if (
+          jobPhase === AcpJobPhases.COMPLETED ||
+          jobPhase === AcpJobPhases.REJECTED
+        ) {
+          logger.info(
+            { jobId, phase: AcpJobPhases[jobPhase] },
+            "Job reached terminal state",
+          );
+        }
+        return;
+      }
+
+      logger.info(
+        { jobId, phase: AcpJobPhases[jobPhase], jobName, memoId: memoToSign.id },
+        "Job event received",
+      );
+
+      try {
+        if (jobPhase === AcpJobPhases.REQUEST) {
+          await handleRequest(job, memoToSign, limitlessWalletAddress);
+        } else if (jobPhase === AcpJobPhases.TRANSACTION) {
+          await handleTransaction(job);
+        }
+      } catch (err) {
+        logger.error({ jobId, err }, "Unhandled error in job handler");
+      }
     },
   });
 

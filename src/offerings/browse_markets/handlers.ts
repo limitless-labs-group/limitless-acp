@@ -35,12 +35,18 @@ export async function executeJob(
   }
 
   const summary = markets.map((m) => ({
-    slug: m.slug,
-    title: m.title,
-    prices: m.prices,
+    marketId: m.slug,
+    question: m.title,
+    isOpen: m.status === "FUNDED",
+    outcomes: m.prices.map((price, i) => ({
+      name: i === 0 ? "YES" : "NO",
+      odds: price / 100,
+    })),
+    closesAt: m.expirationTimestamp
+      ? new Date(m.expirationTimestamp * 1000).toISOString()
+      : null,
     volume: m.volumeFormatted ?? m.volume,
     liquidity: m.liquidityFormatted ?? m.liquidity,
-    expirationTimestamp: m.expirationTimestamp,
     tradeType: m.tradeType,
   }));
 

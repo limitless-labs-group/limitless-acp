@@ -1,68 +1,31 @@
-export enum AcpJobPhase {
-  REQUEST = 0,
-  NEGOTIATION = 1,
-  TRANSACTION = 2,
-  EVALUATION = 3,
-  COMPLETED = 4,
-  REJECTED = 5,
-  EXPIRED = 6,
-}
-
-export enum MemoType {
-  MESSAGE = 0,
-  CONTEXT_URL = 1,
-  IMAGE_URL = 2,
-  VOICE_URL = 3,
-  OBJECT_URL = 4,
-  TXHASH = 5,
-  PAYABLE_REQUEST = 6,
-  PAYABLE_TRANSFER = 7,
-  PAYABLE_FEE = 8,
-  PAYABLE_FEE_REQUEST = 9,
-}
-
-export interface AcpMemoData {
-  id: number;
-  memoType: MemoType;
-  content: string;
-  nextPhase: AcpJobPhase;
-  expiry?: string | null;
-  createdAt?: string;
-  type?: string;
-}
-
-export interface AcpJobEventData {
-  id: number;
-  phase: AcpJobPhase;
-  clientAddress: string;
-  providerAddress: string;
-  evaluatorAddress: string;
-  price: number;
-  memos: AcpMemoData[];
-  context: Record<string, unknown>;
-  createdAt?: string;
-  memoToSign?: number;
-}
-
-export enum SocketEvent {
-  ROOM_JOINED = "roomJoined",
-  ON_NEW_TASK = "onNewTask",
-  ON_EVALUATE = "onEvaluate",
-}
+/**
+ * Custom types for the Limitless ACP seller service.
+ * ACP protocol types (AcpJobPhases, AcpJob, AcpMemo, etc.) come from
+ * @virtuals-protocol/acp-node — these are only the Limitless-specific interfaces.
+ */
 
 export interface JobContext {
   jobId: number;
   clientAddress: string;
   providerAddress: string;
-  price: number;
+  netPayableAmount?: number;
 }
 
 export interface ExecuteJobResult {
-  deliverable: string | { type: string; value: unknown };
-  payableDetail?: { amount: number; tokenAddress: string };
+  deliverable: string;
+  returnAmount?: number;
+  error?: {
+    reason: string;
+    refundAmount?: number;
+  };
 }
 
 export type ValidationResult = boolean | { valid: boolean; reason?: string };
+
+export interface RequiredFunds {
+  amount: number;
+  reason: string;
+}
 
 export interface OfferingHandlers {
   executeJob: (
@@ -72,25 +35,13 @@ export interface OfferingHandlers {
   validateRequirements?: (
     request: Record<string, unknown>,
   ) => ValidationResult | Promise<ValidationResult>;
-  requestPayment?: (
+  getRequiredFunds?: (
     request: Record<string, unknown>,
-  ) => string | Promise<string>;
-  requestAdditionalFunds?: (
-    request: Record<string, unknown>,
-  ) => OfferingFundsRequest | Promise<OfferingFundsRequest>;
-}
-
-export interface OfferingFundsRequest {
-  content?: string;
-  amount: number;
-  tokenAddress: string;
-  recipient: string;
+  ) => RequiredFunds | Promise<RequiredFunds>;
 }
 
 export interface OfferingConfig {
   name: string;
   description: string;
-  jobFee: number;
-  jobFeeType: "fixed" | "percentage";
   requiredFunds: boolean;
 }

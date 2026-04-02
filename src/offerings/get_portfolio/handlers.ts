@@ -19,25 +19,47 @@ export async function executeJob(
       try {
         const market = await client.getMarket(pos.marketSlug);
         const sideIndex = pos.side === "YES" ? 0 : 1;
-        const currentPrice = market.prices[sideIndex];
-        const costBasis = pos.limitPriceCents / 100;
-        const currentValue = (currentPrice / 100) * pos.amountUsd / costBasis;
-        const unrealizedPnl = currentValue - pos.amountUsd;
+        const currentOdds = market.prices[sideIndex] / 100;
+        const entryPrice = pos.limitPriceCents / 100;
+        const usdCurrentValue =
+          Math.round((currentOdds * pos.amountUsd / entryPrice) * 100) / 100;
+        const usdUnrealizedPnl =
+          Math.round((usdCurrentValue - pos.amountUsd) * 100) / 100;
+        const usdPotentialPayout =
+          Math.round((pos.amountUsd / entryPrice) * 100) / 100;
+        const closesAt = market.expirationTimestamp
+          ? new Date(market.expirationTimestamp * 1000).toISOString()
+          : null;
 
         return {
-          ...pos,
-          marketTitle: market.title,
-          currentPriceCents: currentPrice,
-          currentValue: Math.round(currentValue * 100) / 100,
-          unrealizedPnl: Math.round(unrealizedPnl * 100) / 100,
-          marketStatus: market.status,
+          positionId: `pred_pos_${pos.id}`,
+          marketId: pos.marketSlug,
+          question: market.title,
+          outcome: pos.side,
+          usdStake: pos.amountUsd,
+          entryPrice,
+          currentPrice: currentOdds,
+          usdPotentialPayout,
+          usdCurrentValue,
+          usdUnrealizedPnl,
+          openedAt: pos.createdAt,
+          resolveBy: closesAt,
+          isOpen: market.status === "FUNDED",
         };
       } catch (err) {
         logger.warn(
           { slug: pos.marketSlug, err },
           "Failed to enrich position with market data",
         );
-        return { ...pos, marketTitle: pos.marketSlug };
+        return {
+          positionId: `pred_pos_${pos.id}`,
+          marketId: pos.marketSlug,
+          question: pos.marketSlug,
+          outcome: pos.side,
+          usdStake: pos.amountUsd,
+          entryPrice: pos.limitPriceCents / 100,
+          openedAt: pos.createdAt,
+        };
       }
     }),
   );
@@ -47,25 +69,41 @@ export async function executeJob(
     0,
   );
   const totalCurrentValue = enriched.reduce(
-    (sum, p) => sum + ((p as { currentValue?: number }).currentValue ?? p.amountUsd),
+    (sum, p) =>
+      sum + ((p as { usdCurrentValue?: number }).usdCurrentValue ?? p.usdStake),
     0,
   );
 
   const result: Record<string, unknown> = {
+    clientAddress: context.clientAddress,
     positions: enriched,
     summary: {
       totalPositions: activePositions.length,
-      totalInvested: Math.round(totalInvested * 100) / 100,
-      currentValue: Math.round(totalCurrentValue * 100) / 100,
-      unrealizedPnl:
+      usdTotalInvested: Math.round(totalInvested * 100) / 100,
+      usdCurrentValue: Math.round(totalCurrentValue * 100) / 100,
+      usdUnrealizedPnl:
         Math.round((totalCurrentValue - totalInvested) * 100) / 100,
     },
+    lastUpdatedAt: new Date().toISOString(),
   };
 
   if (includeHistory) {
-    result.history = positions.filter(
-      (p) => p.status === "redeemed" || p.status === "failed",
-    );
+    const historical = positions
+      .filter((p) => p.status === "redeemed" || p.status === "failed")
+      .map((p) => ({
+        positionId: `pred_pos_${p.id}`,
+        marketId: p.marketSlug,
+        outcome: p.side,
+        usdStake: p.amountUsd,
+        entryPrice: p.limitPriceCents / 100,
+        usdPayout: p.payoutUsd ?? 0,
+        resolvedAt: p.redeemedAt ?? null,
+        resultStatus:
+          p.status === "redeemed"
+            ? (p.payoutUsd && p.payoutUsd > p.amountUsd ? "Won" : "Lost")
+            : "Failed",
+      }));
+    result.historicalPositions = historical;
   }
 
   return {

@@ -10,8 +10,6 @@ import type {
   ValidationResult,
 } from "../../acpTypes.js";
 
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-
 const redeemClient = new RedeemClient();
 
 export function validateRequirements(
@@ -45,10 +43,12 @@ export async function executeJob(
   }
 
   const redeemed: {
-    marketSlug: string;
+    positionId: string;
+    marketId: string;
     txHash: string;
-    payout: string;
-    ledgerEntryId: string;
+    usdPayout: number;
+    resolvedAt: string;
+    resultStatus: string;
   }[] = [];
   let totalPayout = 0;
 
@@ -56,19 +56,22 @@ export async function executeJob(
     try {
       const result = await redeemClient.redeemSingle(position.marketSlug);
       const payoutNum = parseFloat(result.payout);
+      const resolvedAt = new Date().toISOString();
 
       updatePosition(position.id, {
         status: "redeemed",
-        redeemedAt: new Date().toISOString(),
+        redeemedAt: resolvedAt,
         redeemTxHash: result.txHash,
         payoutUsd: payoutNum,
       });
 
       redeemed.push({
-        marketSlug: position.marketSlug,
+        positionId: `pred_pos_${position.id}`,
+        marketId: position.marketSlug,
         txHash: result.txHash,
-        payout: result.payout,
-        ledgerEntryId: position.id,
+        usdPayout: payoutNum,
+        resolvedAt,
+        resultStatus: payoutNum > position.amountUsd ? "Won" : "Lost",
       });
 
       totalPayout += payoutNum;
@@ -76,7 +79,7 @@ export async function executeJob(
       logger.info(
         {
           market: position.marketSlug,
-          payout: result.payout,
+          usdPayout: payoutNum,
           txHash: result.txHash,
         },
         "Position redeemed",
@@ -89,20 +92,13 @@ export async function executeJob(
     }
   }
 
-  const deliverable = JSON.stringify({
-    redeemed,
-    totalPayout: Math.round(totalPayout * 100) / 100,
-  });
+  const roundedPayout = Math.round(totalPayout * 100) / 100;
 
-  if (totalPayout > 0) {
-    return {
-      deliverable,
-      payableDetail: {
-        tokenAddress: USDC_ADDRESS,
-        amount: totalPayout,
-      },
-    };
-  }
-
-  return { deliverable };
+  return {
+    deliverable: JSON.stringify({
+      redeemed,
+      usdTotalPayout: roundedPayout,
+    }),
+    returnAmount: roundedPayout > 0 ? roundedPayout : undefined,
+  };
 }

@@ -9,10 +9,8 @@ import type {
   ExecuteJobResult,
   JobContext,
   ValidationResult,
-  OfferingFundsRequest,
+  RequiredFunds,
 } from "../../acpTypes.js";
-
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 
 const client = new LimitlessClient();
 const { client: walletClient, account } = getWallet();
@@ -60,17 +58,15 @@ export async function validateRequirements(
   return true;
 }
 
-export async function requestAdditionalFunds(
+export async function getRequiredFunds(
   request: Record<string, unknown>,
-): Promise<OfferingFundsRequest> {
+): Promise<RequiredFunds> {
   const amount = request.amount as number;
   const marketSlug = request.marketSlug as string;
 
   return {
-    content: `Transfer ${amount} USDC for prediction market bet on ${marketSlug}`,
     amount,
-    tokenAddress: USDC_ADDRESS,
-    recipient: account.address,
+    reason: `Transfer ${amount} USDC for prediction market bet on "${marketSlug}"`,
   };
 }
 
@@ -80,8 +76,9 @@ export async function executeJob(
 ): Promise<ExecuteJobResult> {
   const marketSlug = request.marketSlug as string;
   const side = request.side as "YES" | "NO";
-  const amount = request.amount as number;
   const orderType = (request.orderType as "GTC" | "FOK") || "FOK";
+
+  const tradeAmount = context.netPayableAmount ?? (request.amount as number);
 
   let limitPriceCents = request.limitPriceCents as number | undefined;
 
@@ -100,7 +97,7 @@ export async function executeJob(
       marketSlug,
       side,
       limitPriceCents,
-      usdAmount: amount,
+      usdAmount: tradeAmount,
       orderType,
     });
 
@@ -114,7 +111,7 @@ export async function executeJob(
       acpJobId: context.jobId,
       marketSlug,
       side,
-      amountUsd: amount,
+      amountUsd: tradeAmount,
       limitPriceCents,
       orderType,
       status: "filled",
@@ -129,13 +126,14 @@ export async function executeJob(
     return {
       deliverable: JSON.stringify({
         status: "filled",
-        marketSlug,
-        side,
-        amountUsd: amount,
-        limitPriceCents,
+        positionId: `pred_pos_${entry.id}`,
+        marketId: marketSlug,
+        outcome: side,
+        usdStake: tradeAmount,
+        entryPrice: limitPriceCents / 100,
         orderType,
         orderId,
-        ledgerEntryId: entry.id,
+        openedAt: entry.createdAt,
       }),
     };
   } catch (err) {
@@ -146,17 +144,20 @@ export async function executeJob(
       acpJobId: context.jobId,
       marketSlug,
       side,
-      amountUsd: amount,
+      amountUsd: tradeAmount,
       limitPriceCents: limitPriceCents ?? 0,
       orderType,
       status: "failed",
     });
 
+    const errorMsg = err instanceof Error ? err.message : String(err);
+
     return {
-      deliverable: JSON.stringify({
-        status: "failed",
-        error: err instanceof Error ? err.message : String(err),
-      }),
+      deliverable: "",
+      error: {
+        reason: `Failed to place bet on "${marketSlug}": ${errorMsg}`,
+        refundAmount: tradeAmount,
+      },
     };
   }
 }
