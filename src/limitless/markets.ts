@@ -1,25 +1,19 @@
-import fetch from "cross-fetch";
 import { Market, MarketDetail, Orderbook } from "./types.js";
+import { getSdkClient } from "./sdk.js";
 import { logger } from "../logger.js";
 
-const API_BASE =
-  process.env.LIMITLESS_API_URL || "https://api.limitless.exchange";
-
-function getHeaders() {
-  const apiKey = process.env.LIMITLESS_API_KEY;
-  if (!apiKey) {
-    logger.warn("LIMITLESS_API_KEY is not set. Some endpoints may fail.");
+function normalizePositionIds<T extends Partial<Market>>(m: T): T {
+  const tokens = (m as { tokens?: { yes: string; no: string } }).tokens;
+  if (tokens && !m.positionIds) {
+    m.positionIds = [tokens.yes, tokens.no];
   }
-  return {
-    "Content-Type": "application/json",
-    ...(apiKey ? { "X-API-Key": apiKey } : {}),
-  };
+  return m;
 }
 
 export class LimitlessClient {
-  private venueCache: Map<string, Market["venue"]> = new Map();
-
-  constructor(private baseUrl: string = API_BASE) {}
+  private get sdk() {
+    return getSdkClient();
+  }
 
   async getActiveMarkets(
     options: {
@@ -29,38 +23,20 @@ export class LimitlessClient {
       offset?: number;
     } = {},
   ): Promise<Market[]> {
-    const params = new URLSearchParams();
-    if (options.category)
-      params.append("category", options.category.toString());
-    if (options.tradeType) params.append("tradeType", options.tradeType);
-    if (options.limit) params.append("limit", options.limit.toString());
-    if (options.offset) params.append("offset", options.offset.toString());
+    const params: Record<string, string | number> = {};
+    if (options.category) params.category = options.category;
+    if (options.tradeType) params.tradeType = options.tradeType;
+    if (options.limit) params.limit = options.limit;
+    if (options.offset) params.offset = options.offset;
 
-    const url = `${this.baseUrl}/markets/active?${params.toString()}`;
-    logger.debug({ url }, "Fetching active markets");
-    const res = await fetch(url, { headers: getHeaders() });
+    logger.debug({ params }, "Fetching active markets");
+    const data = await this.sdk.http.get<{ data?: Market[] }>(
+      "/markets/active",
+      { params },
+    );
 
-    if (!res.ok) {
-      throw new Error(
-        `Failed to fetch markets: ${res.status} ${res.statusText}`,
-      );
-    }
-
-    const data = await res.json();
     const markets = data.data || [];
-
-    markets.forEach((m: Market) => {
-      if (m.slug && m.venue) {
-        this.venueCache.set(m.slug, m.venue);
-      }
-    });
-
-    return markets.map((m: any) => ({
-      ...m,
-      positionIds: m.tokens
-        ? [m.tokens.yes, m.tokens.no]
-        : m.positionIds,
-    })) as Market[];
+    return markets.map((m) => normalizePositionIds(m));
   }
 
   async searchMarkets(
@@ -71,83 +47,38 @@ export class LimitlessClient {
       page?: number;
     } = {},
   ): Promise<Market[]> {
-    const params = new URLSearchParams();
-    params.append("query", query);
+    const params: Record<string, string | number> = { query };
     if (options.similarityThreshold)
-      params.append(
-        "similarityThreshold",
-        options.similarityThreshold.toString(),
-      );
-    if (options.limit) params.append("limit", options.limit.toString());
-    if (options.page) params.append("page", options.page.toString());
+      params.similarityThreshold = options.similarityThreshold;
+    if (options.limit) params.limit = options.limit;
+    if (options.page) params.page = options.page;
 
-    const url = `${this.baseUrl}/markets/search?${params.toString()}`;
-    logger.debug({ url, query }, "Searching markets");
-    const res = await fetch(url, { headers: getHeaders() });
+    logger.debug({ query }, "Searching markets");
+    const data = await this.sdk.http.get<
+      Market[] | { markets?: Market[]; data?: Market[] }
+    >("/markets/search", { params });
 
-    if (!res.ok) {
-      throw new Error(
-        `Failed to search markets: ${res.status} ${res.statusText}`,
-      );
-    }
-
-    const data = await res.json();
     const markets = Array.isArray(data)
       ? data
       : data.markets || data.data || [];
-
-    markets.forEach((m: Market) => {
-      if (m.slug && m.venue) {
-        this.venueCache.set(m.slug, m.venue);
-      }
-    });
-
-    return markets;
+    return markets.map((m) => normalizePositionIds(m));
   }
 
   async getMarket(slug: string): Promise<MarketDetail> {
-    const url = `${this.baseUrl}/markets/${slug}`;
-    logger.debug({ url }, "Fetching market detail");
-    const res = await fetch(url, { headers: getHeaders() });
-
-    if (!res.ok) {
-      throw new Error(
-        `Failed to fetch market ${slug}: ${res.status} ${res.statusText}`,
-      );
-    }
-
-    const market = (await res.json()) as MarketDetail;
-
-    if (market.venue) {
-      this.venueCache.set(slug, market.venue);
-    }
-
-    if (
-      (market as any).tokens &&
-      !market.positionIds
-    ) {
-      const tokens = (market as any).tokens as Record<string, string>;
-      market.positionIds = [tokens.yes, tokens.no];
-    }
-
-    return market;
+    logger.debug({ slug }, "Fetching market detail");
+    // Fetching via the SDK warms its venue cache, which the shared order
+    // client reuses when signing and submitting orders for this market.
+    const market = await this.sdk.markets.getMarket(slug);
+    return normalizePositionIds(market as unknown as MarketDetail);
   }
 
   async getOrderbook(slug: string): Promise<Orderbook> {
-    const url = `${this.baseUrl}/markets/${slug}/orderbook`;
-    const res = await fetch(url, { headers: getHeaders() });
-
-    if (!res.ok) {
-      throw new Error(`Failed to fetch orderbook for ${slug}`);
-    }
-
-    return (await res.json()) as Orderbook;
+    return (await this.sdk.markets.getOrderBook(slug)) as unknown as Orderbook;
   }
 
   async getVenue(slug: string): Promise<Market["venue"]> {
-    if (this.venueCache.has(slug)) {
-      return this.venueCache.get(slug)!;
-    }
+    const cached = this.sdk.markets.getVenue(slug);
+    if (cached) return cached as Market["venue"];
     const market = await this.getMarket(slug);
     return market.venue;
   }

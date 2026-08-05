@@ -7,12 +7,15 @@
   "scripts": {
     "start": "tsx src/seller.ts",
     "approve": "tsx src/scripts/approve.ts",
+    "derive-token": "tsx src/scripts/deriveToken.ts",
+    "smoke:buyer": "tsx src/scripts/buyerSmoke.ts",
+    "smoke:seller": "tsx src/scripts/sellerSmoke.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@limitless-exchange/sdk": "^1.0.11",
     "@virtuals-protocol/acp-node": "^0.3.0-beta.40",
-    "cross-fetch": "^4.1.0",
     "dotenv": "^16.4.7",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",

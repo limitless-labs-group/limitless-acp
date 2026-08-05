@@ -8,7 +8,7 @@ import {
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { logger } from "../logger.js";
-import fetch from "cross-fetch";
+import { getSdkClient } from "./sdk.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -17,7 +17,6 @@ const CTF_ADDRESS =
   "0xC9c98965297Bc527861c898329Ee280632B76e18" as `0x${string}`;
 const USDC_ADDRESS =
   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`;
-const API_BASE = "https://api.limitless.exchange";
 
 const CTF_ABI = parseAbi([
   "function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets) external",
@@ -69,23 +68,13 @@ export class RedeemClient {
   }
 
   async scanRedeemable(): Promise<ClaimablePosition[]> {
-    const apiKey = process.env.LIMITLESS_API_KEY;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...(apiKey ? { "X-API-Key": apiKey } : {}),
-    };
+    const raw = await getSdkClient().portfolio.getPositions();
 
-    const res = await fetch(`${API_BASE}/portfolio/positions`, { headers });
-    if (!res.ok) throw new Error(`Failed to fetch positions: ${res.status}`);
-    const raw = await res.json();
-
-    const positions: Record<string, unknown>[] = Array.isArray(raw)
-      ? raw
-      : [
-          ...((raw as Record<string, unknown[]>).clob ?? []),
-          ...((raw as Record<string, unknown[]>).amm ?? []),
-          ...((raw as Record<string, unknown[]>).group ?? []),
-        ];
+    const positions = [
+      ...(raw.clob ?? []),
+      ...(raw.amm ?? []),
+      ...(raw.group ?? []),
+    ] as unknown as Record<string, unknown>[];
 
     const claimable: ClaimablePosition[] = [];
 
@@ -163,9 +152,7 @@ export class RedeemClient {
     const position = claimable.find((p) => p.marketSlug === marketSlug);
 
     if (!position) {
-      throw new Error(
-        `No redeemable position found for market: ${marketSlug}`,
-      );
+      throw new Error(`No redeemable position found for market: ${marketSlug}`);
     }
 
     const usdcBefore = await this.publicClient.readContract({
@@ -175,15 +162,18 @@ export class RedeemClient {
       args: [this.account.address],
     });
 
-    const indexSets = [
-      BigInt(1 << position.winningOutcomeIndex),
-    ];
+    const indexSets = [BigInt(1 << position.winningOutcomeIndex)];
 
     const hash = await this.walletClient.writeContract({
       address: CTF_ADDRESS,
       abi: CTF_ABI,
       functionName: "redeemPositions",
-      args: [USDC_ADDRESS, PARENT_COLLECTION_ID, position.conditionId, indexSets],
+      args: [
+        USDC_ADDRESS,
+        PARENT_COLLECTION_ID,
+        position.conditionId,
+        indexSets,
+      ],
     });
 
     logger.info({ hash, market: marketSlug }, "Redeem tx sent");

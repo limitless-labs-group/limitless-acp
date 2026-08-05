@@ -1,0 +1,323 @@
+{
+  "jobs": [
+    {
+      "name": "browse_markets",
+      "description": "Search and browse active prediction markets on Limitless Exchange. Returns market questions, current odds, volume, liquidity, and close times. Supports filtering by keyword and trade type.",
+      "requiredFunds": false,
+      "slaMinutes": 5,
+      "requirement": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to filter markets (e.g. 'BTC', 'election', 'ETH above'). If omitted, returns trending markets."
+          },
+          "tradeType": {
+            "type": "string",
+            "description": "Filter by trade type: amm, clob, or group"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max number of markets to return (default 20, max 50)"
+          }
+        }
+      },
+      "deliverable": {
+        "type": "object",
+        "properties": {
+          "markets": {
+            "type": "array",
+            "description": "List of matching prediction markets",
+            "items": {
+              "type": "object",
+              "properties": {
+                "marketId": {
+                  "type": "string",
+                  "description": "Unique market identifier (slug)"
+                },
+                "question": {
+                  "type": "string",
+                  "description": "The prediction question"
+                },
+                "isOpen": {
+                  "type": "boolean",
+                  "description": "Whether the market is currently open for trading"
+                },
+                "outcomes": {
+                  "type": "array",
+                  "description": "Available outcomes with current odds",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "Outcome name (YES or NO)"
+                      },
+                      "odds": {
+                        "type": "number",
+                        "description": "Current odds as a decimal (0.0 to 1.0)"
+                      }
+                    }
+                  }
+                },
+                "closesAt": {
+                  "type": "string",
+                  "description": "Market close time in ISO 8601 UTC format"
+                },
+                "volume": {
+                  "type": "string",
+                  "description": "Total trading volume"
+                },
+                "liquidity": {
+                  "type": "string",
+                  "description": "Current market liquidity"
+                }
+              }
+            }
+          }
+        },
+        "required": ["markets"]
+      },
+      "price": {
+        "type": "fixed",
+        "value": 0.01
+      }
+    },
+    {
+      "name": "place_bet",
+      "description": "Place a YES/NO bet on a prediction market on Limitless Exchange. Funds are transferred via ACP escrow and the CLOB order is executed on your behalf. Returns position confirmation with entry price.",
+      "requiredFunds": true,
+      "slaMinutes": 10,
+      "requirement": {
+        "type": "object",
+        "properties": {
+          "marketSlug": {
+            "type": "string",
+            "description": "Market identifier from browse_markets (marketId field)"
+          },
+          "side": {
+            "type": "string",
+            "description": "Outcome to bet on: YES or NO"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Amount in USDC to bet"
+          },
+          "limitPriceCents": {
+            "type": "number",
+            "description": "Max price per contract in cents (1-99). If omitted, uses current market price."
+          },
+          "orderType": {
+            "type": "string",
+            "description": "Order type: FOK (fill-or-kill, default) or GTC (good-till-cancelled)"
+          }
+        },
+        "required": ["marketSlug", "side", "amount"]
+      },
+      "deliverable": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Order status: filled"
+          },
+          "positionId": {
+            "type": "string",
+            "description": "Unique position identifier (pred_pos_xxx) for portfolio tracking"
+          },
+          "marketId": {
+            "type": "string",
+            "description": "Market identifier"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "Outcome bet on (YES or NO)"
+          },
+          "usdStake": {
+            "type": "number",
+            "description": "Actual USDC amount staked (after ACP fee deduction)"
+          },
+          "entryPrice": {
+            "type": "number",
+            "description": "Entry price as a decimal (e.g. 0.65 means 65 cents per contract)"
+          },
+          "orderId": {
+            "type": "string",
+            "description": "Exchange order ID"
+          },
+          "openedAt": {
+            "type": "string",
+            "description": "Position open time in ISO 8601 UTC format"
+          }
+        },
+        "required": ["status", "positionId", "marketId", "outcome", "usdStake", "entryPrice"]
+      },
+      "price": {
+        "type": "fixed",
+        "value": 0.01
+      }
+    },
+    {
+      "name": "get_portfolio",
+      "description": "View your current prediction market positions with unrealized P&L, current odds, and potential payouts. Optionally include resolved trade history.",
+      "requiredFunds": false,
+      "slaMinutes": 5,
+      "requirement": {
+        "type": "object",
+        "properties": {
+          "includeHistory": {
+            "type": "boolean",
+            "description": "If true, includes resolved/historical positions alongside active ones. Default false."
+          }
+        }
+      },
+      "deliverable": {
+        "type": "object",
+        "properties": {
+          "clientAddress": {
+            "type": "string",
+            "description": "The requesting agent's wallet address"
+          },
+          "positions": {
+            "type": "array",
+            "description": "Active prediction market positions",
+            "items": {
+              "type": "object",
+              "properties": {
+                "positionId": {
+                  "type": "string",
+                  "description": "Unique position identifier (pred_pos_xxx)"
+                },
+                "marketId": {
+                  "type": "string",
+                  "description": "Market identifier"
+                },
+                "question": {
+                  "type": "string",
+                  "description": "The prediction question"
+                },
+                "outcome": {
+                  "type": "string",
+                  "description": "Outcome held (YES or NO)"
+                },
+                "usdStake": {
+                  "type": "number",
+                  "description": "Original stake in USDC"
+                },
+                "entryPrice": {
+                  "type": "number",
+                  "description": "Entry price as decimal"
+                },
+                "currentPrice": {
+                  "type": "number",
+                  "description": "Current market price as decimal"
+                },
+                "usdPotentialPayout": {
+                  "type": "number",
+                  "description": "Maximum potential payout if position wins"
+                },
+                "usdCurrentValue": {
+                  "type": "number",
+                  "description": "Current market value of the position"
+                },
+                "usdUnrealizedPnl": {
+                  "type": "number",
+                  "description": "Unrealized profit/loss in USDC"
+                },
+                "openedAt": {
+                  "type": "string",
+                  "description": "Position open time in ISO 8601 UTC"
+                },
+                "resolveBy": {
+                  "type": "string",
+                  "description": "Market resolution deadline in ISO 8601 UTC"
+                }
+              }
+            }
+          },
+          "summary": {
+            "type": "object",
+            "description": "Portfolio summary statistics",
+            "properties": {
+              "totalPositions": { "type": "number", "description": "Number of active positions" },
+              "usdTotalInvested": { "type": "number", "description": "Total USDC invested" },
+              "usdCurrentValue": { "type": "number", "description": "Total current value" },
+              "usdUnrealizedPnl": { "type": "number", "description": "Total unrealized P&L" }
+            }
+          },
+          "lastUpdatedAt": {
+            "type": "string",
+            "description": "Timestamp of this portfolio snapshot in ISO 8601 UTC"
+          }
+        },
+        "required": ["positions", "summary", "lastUpdatedAt"]
+      },
+      "price": {
+        "type": "fixed",
+        "value": 0.01
+      }
+    },
+    {
+      "name": "redeem_winnings",
+      "description": "Claim winnings from resolved prediction markets. Executes on-chain CTF redemption and returns USDC proceeds. Specify a market to redeem one position, or omit to redeem all winning positions.",
+      "requiredFunds": false,
+      "slaMinutes": 15,
+      "requirement": {
+        "type": "object",
+        "properties": {
+          "marketSlug": {
+            "type": "string",
+            "description": "Specific market to redeem from. If omitted, redeems all resolved winning positions."
+          }
+        }
+      },
+      "deliverable": {
+        "type": "object",
+        "properties": {
+          "redeemed": {
+            "type": "array",
+            "description": "List of redeemed positions",
+            "items": {
+              "type": "object",
+              "properties": {
+                "positionId": {
+                  "type": "string",
+                  "description": "Position identifier (pred_pos_xxx)"
+                },
+                "marketId": {
+                  "type": "string",
+                  "description": "Market identifier"
+                },
+                "txHash": {
+                  "type": "string",
+                  "description": "On-chain redemption transaction hash"
+                },
+                "usdPayout": {
+                  "type": "number",
+                  "description": "USDC payout amount for this position"
+                },
+                "resolvedAt": {
+                  "type": "string",
+                  "description": "Redemption time in ISO 8601 UTC"
+                },
+                "resultStatus": {
+                  "type": "string",
+                  "description": "Result: Won or Lost"
+                }
+              }
+            }
+          },
+          "usdTotalPayout": {
+            "type": "number",
+            "description": "Total USDC payout across all redeemed positions"
+          }
+        },
+        "required": ["redeemed", "usdTotalPayout"]
+      },
+      "price": {
+        "type": "fixed",
+        "value": 0.05
+      }
+    }
+  ]
+}

@@ -1,10 +1,11 @@
-import fetch from "cross-fetch";
-import crypto from "crypto";
+import {
+  OrderType,
+  Side,
+  type CreateOrderParams,
+} from "@limitless-exchange/sdk";
 import { LimitlessClient } from "./markets.js";
-import { OrderSigner } from "./sign.js";
+import { getOrderClient } from "./sdk.js";
 import { logger } from "../logger.js";
-
-const API_BASE_DEFAULT = "https://api.limitless.exchange";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -35,41 +36,10 @@ class Semaphore {
 }
 
 export class TradingClient {
-  private cachedUserId?: number;
-  private marketDetailCache: Map<string, { market: unknown; fetchedAt: number }> =
-    new Map();
-  private readonly MARKET_DETAIL_TTL = 120000;
   private lastOrderTime = 0;
   private orderSemaphore = new Semaphore(2);
 
-  constructor(
-    private client: LimitlessClient,
-    private signer: OrderSigner,
-    private baseUrl: string = process.env.LIMITLESS_API_URL || API_BASE_DEFAULT,
-  ) {}
-
-  private get headers() {
-    const apiKey = process.env.LIMITLESS_API_KEY;
-    return {
-      "Content-Type": "application/json",
-      ...(apiKey ? { "X-API-Key": apiKey } : {}),
-    };
-  }
-
-  async getUserId(walletAddress: string): Promise<number> {
-    if (this.cachedUserId) return this.cachedUserId;
-
-    const url = `${this.baseUrl}/profiles/${walletAddress}`;
-    const res = await fetch(url, { headers: this.headers });
-    if (!res.ok) throw new Error(`Failed to fetch profile: ${res.status}`);
-    const profile = await res.json();
-    this.cachedUserId = profile.id;
-    logger.info(
-      { userId: profile.id, wallet: walletAddress },
-      "Got user profile",
-    );
-    return profile.id;
-  }
+  constructor(private client: LimitlessClient = new LimitlessClient()) {}
 
   async createOrder(params: {
     marketSlug: string;
@@ -115,22 +85,10 @@ export class TradingClient {
   }): Promise<Record<string, unknown>> {
     const { marketSlug, side, limitPriceCents, usdAmount, orderType } = params;
 
-    const cached = this.marketDetailCache.get(marketSlug);
-    let market: Record<string, unknown>;
-    if (cached && Date.now() - cached.fetchedAt < this.MARKET_DETAIL_TTL) {
-      market = cached.market as Record<string, unknown>;
-    } else {
-      market = (await this.client.getMarket(marketSlug)) as unknown as Record<
-        string,
-        unknown
-      >;
-      this.marketDetailCache.set(marketSlug, {
-        market,
-        fetchedAt: Date.now(),
-      });
-    }
+    // Warms the SDK venue cache so the order client signs without extra fetches.
+    const market = await this.client.getMarket(marketSlug);
     if (!market.venue) throw new Error(`Market ${marketSlug} has no venue`);
-    const positionIds = market.positionIds as string[];
+    const positionIds = market.positionIds;
     if (!positionIds || positionIds.length < 2) {
       throw new Error(`Market ${marketSlug} has invalid position IDs`);
     }
@@ -138,114 +96,76 @@ export class TradingClient {
     const tokenId = side === "YES" ? positionIds[0] : positionIds[1];
     const price = limitPriceCents / 100;
 
-    let makerAmount: bigint;
-    let takerAmount: bigint;
-
+    let orderParams: CreateOrderParams;
     if (orderType === "FOK") {
-      makerAmount = BigInt(Math.round(usdAmount * 1_000_000));
-      takerAmount = 1n;
+      // FOK BUY: makerAmount is the USDC amount to spend (human units, max 6 decimals)
+      orderParams = {
+        orderType: OrderType.FOK,
+        marketSlug,
+        tokenId,
+        side: Side.BUY,
+        makerAmount: Math.floor(usdAmount * 1_000_000) / 1_000_000,
+      };
     } else {
-      const TICK_SIZE = 1000n;
-      const SCALE = 1_000_000n;
-
-      const rawContracts = BigInt(
-        Math.floor((usdAmount * 1_000_000) / price),
-      );
-      takerAmount = (rawContracts / TICK_SIZE) * TICK_SIZE;
-
-      const priceScaled = BigInt(Math.floor(price * 1_000_000));
-      makerAmount = (takerAmount * priceScaled) / SCALE;
+      // GTC: price per share + share count, floored to 0.001-share increments
+      const size = Math.floor((usdAmount / price) * 1000) / 1000;
+      if (size <= 0) {
+        throw new Error(
+          `Amount ${usdAmount} too small for a GTC order at price ${price}`,
+        );
+      }
+      orderParams = {
+        orderType: OrderType.GTC,
+        marketSlug,
+        tokenId,
+        side: Side.BUY,
+        price,
+        size,
+      };
     }
 
-    const userId = await this.getUserId(this.signer.getAddress());
-
-    const venue = market.venue as { exchange: string; adapter: string };
-    const signedOrder = await this.signer.signOrder(venue, {
-      tokenId,
-      makerAmount,
-      takerAmount,
-      side: "BUY",
-    });
-
-    const orderBody: Record<string, unknown> = {
-      order: {
-        salt: Number(signedOrder.salt),
-        maker: signedOrder.maker,
-        signer: signedOrder.signer,
-        taker: signedOrder.taker,
-        tokenId: signedOrder.tokenId,
-        makerAmount: Number(signedOrder.makerAmount),
-        takerAmount: Number(signedOrder.takerAmount),
-        expiration: signedOrder.expiration,
-        nonce: signedOrder.nonce,
-        feeRateBps: signedOrder.feeRateBps,
-        side: signedOrder.side,
-        signatureType: signedOrder.signatureType,
-        signature: signedOrder.signature,
-        ...(orderType === "GTC" ? { price } : {}),
-      },
-      orderType,
-      marketSlug,
-      ownerId: userId,
-      clientOrderId: `${marketSlug}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
-    };
-
-    const url = `${this.baseUrl}/orders`;
     logger.info(
-      {
-        slug: marketSlug,
-        side,
-        price,
-        usdAmount,
-        orderType,
-        clientOrderId: orderBody.clientOrderId,
-      },
+      { slug: marketSlug, side, price, usdAmount, orderType },
       "Submitting order",
     );
 
     if (process.env.DRY_RUN === "true") {
       logger.info({ slug: marketSlug }, "DRY RUN: Order execution skipped");
-      return { status: "DRY_RUN", order: signedOrder };
+      return { status: "DRY_RUN", order: orderParams };
     }
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify(orderBody),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      const lowerErr = errText.toLowerCase();
+    try {
+      const res = await getOrderClient().createOrder(orderParams);
+      return {
+        id: res.order.id,
+        order: res.order,
+        makerMatches: res.makerMatches,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = (err as { status?: number }).status;
+      const lowerErr = message.toLowerCase();
       const isApprovalIssue =
         lowerErr.includes("allowance") ||
         lowerErr.includes("not approved") ||
         lowerErr.includes("approval") ||
         lowerErr.includes("insufficient") ||
-        res.status === 403;
+        status === 403;
 
       if (isApprovalIssue) {
         throw new Error(
           `Market not approved. Run: npm run approve ${marketSlug}\n` +
-            `  (Original error: ${res.status} ${errText})`,
+            `  (Original error: ${status ?? ""} ${message})`,
         );
       }
 
       throw new Error(
-        `Order submission failed [${orderType}]: ${res.status} ${errText}`,
+        `Order submission failed [${orderType}]: ${status ?? ""} ${message}`,
       );
     }
-
-    return (await res.json()) as Record<string, unknown>;
   }
 
   async cancelOrder(orderId: string): Promise<void> {
-    const url = `${this.baseUrl}/orders/${orderId}`;
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: this.headers,
-    });
-    if (!res.ok)
-      throw new Error(`Failed to cancel order ${orderId}: ${res.status}`);
+    await getOrderClient().cancel(orderId);
   }
 }

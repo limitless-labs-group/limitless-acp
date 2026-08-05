@@ -1,8 +1,6 @@
 import { LimitlessClient } from "../../limitless/markets.js";
 import { TradingClient } from "../../limitless/trading.js";
-import { OrderSigner } from "../../limitless/sign.js";
 import { ensureMarketApproved } from "../../limitless/approve.js";
-import { getWallet } from "../../limitless/wallet.js";
 import { addPosition } from "../../ledger.js";
 import { logger } from "../../logger.js";
 import type {
@@ -13,9 +11,7 @@ import type {
 } from "../../acpTypes.js";
 
 const client = new LimitlessClient();
-const { client: walletClient, account } = getWallet();
-const signer = new OrderSigner(walletClient, account);
-const tradingClient = new TradingClient(client, signer);
+const tradingClient = new TradingClient(client);
 
 export async function validateRequirements(
   request: Record<string, unknown>,

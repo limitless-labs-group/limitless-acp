@@ -2,7 +2,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import AcpClientDefault, {
+import AcpNodeDefault, {
   AcpContractClientV2,
   AcpJob,
   AcpJobPhases,
@@ -12,13 +12,16 @@ import AcpClientDefault, {
   MemoType,
 } from "@virtuals-protocol/acp-node";
 
-// The SDK's CJS type declarations don't expose a constructable default under
-// Node16 moduleResolution. The class IS constructable at runtime.
-const AcpClient = AcpClientDefault as unknown as new (options: {
+type AcpClientCtor = new (options: {
   acpContractClient: Awaited<ReturnType<typeof AcpContractClientV2.build>>;
   onNewTask?: (job: AcpJob, memoToSign?: AcpMemo) => void;
   onEvaluate?: (job: AcpJob) => void;
 }) => unknown;
+
+// Handle CJS/ESM interop: constructor may be at default or default.default.
+const AcpClient = (
+  (AcpNodeDefault as { default?: unknown }).default ?? AcpNodeDefault
+) as AcpClientCtor;
 import { loadOffering, listOfferings } from "./offeringLoader.js";
 import { getWallet } from "./limitless/wallet.js";
 import { logger } from "./logger.js";
