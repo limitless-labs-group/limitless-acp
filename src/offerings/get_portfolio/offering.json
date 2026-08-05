@@ -12,5 +12,6 @@
         "description": "Include trade history (default false)"
       }
     }
-  }
+  },
+  "priceUsd": 0.01
 }

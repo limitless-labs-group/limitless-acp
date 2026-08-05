@@ -13,7 +13,11 @@
       },
       "tradeType": {
         "type": "string",
-        "enum": ["amm", "clob", "group"],
+        "enum": [
+          "amm",
+          "clob",
+          "group"
+        ],
         "description": "Filter by trade type"
       },
       "limit": {
@@ -21,5 +25,6 @@
         "description": "Max number of markets to return (default 20, max 50)"
       }
     }
-  }
+  },
+  "priceUsd": 0.01
 }

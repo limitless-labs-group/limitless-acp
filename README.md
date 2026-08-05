@@ -124,7 +124,7 @@ npm run approve <market-slug>
 
 **Position ledger:** Since multiple buyer agents route through one trading wallet, an internal JSON ledger tracks which buyer owns which positions. Used by `get_portfolio` and `redeem_winnings`.
 
-**ACP SDK integration:** Uses the official [`@virtuals-protocol/acp-node`](https://www.npmjs.com/package/@virtuals-protocol/acp-node) SDK with `AcpClient` + `AcpContractClientV2` for the full job lifecycle (REQUEST → NEGOTIATION → TRANSACTION → EVALUATION).
+**ACP SDK integration:** Uses the official [`@virtuals-protocol/acp-node-v2`](https://www.npmjs.com/package/@virtuals-protocol/acp-node-v2) SDK — `AcpAgent` + `JobSession` with event-driven job handling (`job.created` → requirement/budget → `job.funded` → execute → `submit`). Requires upgrading the agent in the Virtuals UI to obtain `walletId` + `signerPrivateKey` (set `ACP_WALLET_ID` / `ACP_SIGNER_PRIVATE_KEY`). Buyer funds for `place_bet` route to the Limitless trading wallet via the v2 fund-request mechanism (`setBudgetWithFundRequest`).
 
 ## Graduation
 
@@ -145,7 +145,7 @@ docker run --env-file .env limitless-acp
 
 ## Stack
 
-- [@virtuals-protocol/acp-node](https://www.npmjs.com/package/@virtuals-protocol/acp-node) — Official ACP SDK (WebSocket + smart contracts)
+- [@virtuals-protocol/acp-node-v2](https://www.npmjs.com/package/@virtuals-protocol/acp-node-v2) — Official ACP SDK v2 (event-driven, AcpAgent/JobSession)
 - [@limitless-exchange/sdk](https://www.npmjs.com/package/@limitless-exchange/sdk) — Official Limitless SDK (HMAC auth, EIP-712 order signing, portfolio)
 - [Limitless Exchange](https://limitless.exchange) — Prediction markets on Base
 - [viem](https://viem.sh) — On-chain contract calls (approvals, CTF redemption)

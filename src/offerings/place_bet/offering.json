@@ -13,7 +13,10 @@
       },
       "side": {
         "type": "string",
-        "enum": ["YES", "NO"],
+        "enum": [
+          "YES",
+          "NO"
+        ],
         "description": "Outcome to bet on"
       },
       "amount": {
@@ -26,10 +29,18 @@
       },
       "orderType": {
         "type": "string",
-        "enum": ["GTC", "FOK"],
+        "enum": [
+          "GTC",
+          "FOK"
+        ],
         "description": "Order type. FOK (fill-or-kill) is default and recommended."
       }
     },
-    "required": ["marketSlug", "side", "amount"]
-  }
+    "required": [
+      "marketSlug",
+      "side",
+      "amount"
+    ]
+  },
+  "priceUsd": 0.01
 }

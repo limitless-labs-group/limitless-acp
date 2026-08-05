@@ -44,4 +44,6 @@ export interface OfferingConfig {
   name: string;
   description: string;
   requiredFunds: boolean;
+  /** Fixed service fee in USDC the seller sets as the job budget (ACP v2). */
+  priceUsd?: number;
 }
