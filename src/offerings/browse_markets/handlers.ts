@@ -39,7 +39,7 @@ export async function executeJob(
     marketId: m.slug,
     question: m.title,
     isOpen: m.status === "FUNDED",
-    outcomes: m.prices.map((price, i) => ({
+    outcomes: (m.prices ?? []).map((price, i) => ({
       name: i === 0 ? "YES" : "NO",
       odds: priceDecimal(price),
     })),
