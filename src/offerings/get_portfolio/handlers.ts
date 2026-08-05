@@ -1,4 +1,5 @@
 import { LimitlessClient } from "../../limitless/markets.js";
+import { priceDecimal, tsMillis } from "../../limitless/normalize.js";
 import { getPositionsByBuyer } from "../../ledger.js";
 import { logger } from "../../logger.js";
 import type { ExecuteJobResult, JobContext } from "../../acpTypes.js";
@@ -19,7 +20,7 @@ export async function executeJob(
       try {
         const market = await client.getMarket(pos.marketSlug);
         const sideIndex = pos.side === "YES" ? 0 : 1;
-        const currentOdds = market.prices[sideIndex] / 100;
+        const currentOdds = priceDecimal(market.prices[sideIndex]);
         const entryPrice = pos.limitPriceCents / 100;
         const usdCurrentValue =
           Math.round((currentOdds * pos.amountUsd / entryPrice) * 100) / 100;
@@ -28,7 +29,7 @@ export async function executeJob(
         const usdPotentialPayout =
           Math.round((pos.amountUsd / entryPrice) * 100) / 100;
         const closesAt = market.expirationTimestamp
-          ? new Date(market.expirationTimestamp * 1000).toISOString()
+          ? new Date(tsMillis(market.expirationTimestamp)).toISOString()
           : null;
 
         return {

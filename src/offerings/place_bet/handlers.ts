@@ -1,5 +1,6 @@
 import { LimitlessClient } from "../../limitless/markets.js";
 import { TradingClient } from "../../limitless/trading.js";
+import { priceCents } from "../../limitless/normalize.js";
 import { ensureMarketApproved } from "../../limitless/approve.js";
 import { addPosition } from "../../ledger.js";
 import { logger } from "../../logger.js";
@@ -82,7 +83,7 @@ export async function executeJob(
     if (!limitPriceCents) {
       const market = await client.getMarket(marketSlug);
       const sideIndex = side === "YES" ? 0 : 1;
-      limitPriceCents = Math.ceil(market.prices[sideIndex]);
+      limitPriceCents = Math.ceil(priceCents(market.prices[sideIndex]));
       if (limitPriceCents < 1) limitPriceCents = 1;
       if (limitPriceCents > 99) limitPriceCents = 99;
     }

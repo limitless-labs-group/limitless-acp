@@ -1,4 +1,5 @@
 import { LimitlessClient } from "../../limitless/markets.js";
+import { priceDecimal, tsMillis } from "../../limitless/normalize.js";
 import type {
   ExecuteJobResult,
   JobContext,
@@ -40,10 +41,10 @@ export async function executeJob(
     isOpen: m.status === "FUNDED",
     outcomes: m.prices.map((price, i) => ({
       name: i === 0 ? "YES" : "NO",
-      odds: price / 100,
+      odds: priceDecimal(price),
     })),
     closesAt: m.expirationTimestamp
-      ? new Date(m.expirationTimestamp * 1000).toISOString()
+      ? new Date(tsMillis(m.expirationTimestamp)).toISOString()
       : null,
     volume: m.volumeFormatted ?? m.volume,
     liquidity: m.liquidityFormatted ?? m.liquidity,
