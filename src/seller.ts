@@ -15,6 +15,7 @@ import type {
 import { base } from "@account-kit/infra";
 import { loadOffering, listOfferings } from "./offeringLoader.js";
 import { getWallet } from "./limitless/wallet.js";
+import { getSdkClient } from "./limitless/sdk.js";
 import { logger } from "./logger.js";
 import type { JobContext } from "./acpTypes.js";
 
@@ -203,6 +204,37 @@ async function main() {
   } catch (err) {
     logger.fatal({ err }, "Failed to initialize Limitless trading wallet");
     process.exit(1);
+  }
+
+  // Preflight: place_bet requires the Limitless profile in EOA trading mode
+  // and the HMAC token bound to the trading wallet. Logging into the Limitless
+  // web UI can silently flip the account back to smart-wallet mode.
+  try {
+    const profile = (await getSdkClient().portfolio.getProfile()) as {
+      account?: string;
+      tradeWalletOption?: string;
+    };
+    if (profile.tradeWalletOption && profile.tradeWalletOption !== "eoa") {
+      logger.warn(
+        { tradeWalletOption: profile.tradeWalletOption },
+        "Limitless profile is NOT in EOA trading mode — orders will be " +
+          'rejected. Fix: PUT /profiles with { "tradeWalletOption": "eoa" }',
+      );
+    }
+    if (
+      profile.account &&
+      profile.account.toLowerCase() !== limitlessWalletAddress.toLowerCase()
+    ) {
+      logger.warn(
+        {
+          profileAccount: profile.account,
+          tradingWallet: limitlessWalletAddress,
+        },
+        "HMAC token profile does not match the trading wallet — orders will fail",
+      );
+    }
+  } catch (err) {
+    logger.warn({ err }, "Limitless profile preflight check skipped");
   }
 
   const offerings = listOfferings();
