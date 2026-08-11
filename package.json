@@ -13,6 +13,7 @@
     "mcp": "tsx src/mcp/stdio.ts",
     "mcp:http": "tsx src/mcp/http.ts",
     "smoke:mcp": "tsx src/scripts/mcpSmoke.ts",
+    "smoke:mcp-trade": "tsx src/scripts/mcpTradeSmoke.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

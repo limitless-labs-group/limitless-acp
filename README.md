@@ -128,6 +128,22 @@ npm run mcp:http   # streamable HTTP on :3333 at /mcp (remote hosting; MCP_PORT 
 npm run smoke:mcp  # spawns the stdio server and exercises every tool
 ```
 
+### Trading mode (opt-in)
+
+Set `LIMITLESS_MCP_TRADING=true` to add self-custody trading tools that use
+the configured trading wallet (`PRIVATE_KEY` + HMAC token): `get_wallet`,
+`get_positions`, `place_bet`, `cancel_order`, `redeem_winnings`. Bets are
+capped per order via `LIMITLESS_MCP_MAX_BET_USD` (default 10). The HTTP
+transport refuses to start in trading mode unless `MCP_AUTH_TOKEN` is set
+(clients must send `Authorization: Bearer <token>`).
+
+```bash
+npm run smoke:mcp-trade   # full-path test — places a REAL small bet (MCP_SMOKE_BET_USD, default 0.5)
+```
+
+Multi-user hosted trading (per-user sub-accounts via Limitless delegated
+signing) is the planned next phase and requires partner-scope provisioning.
+
 ## Architecture
 
 **Two-wallet setup:**

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { LimitlessClient } from "../limitless/markets.js";
 import { priceDecimal, tsMillis } from "../limitless/normalize.js";
+import { registerTradingTools } from "./trading.js";
 import type { Market } from "../limitless/types.js";
 
 const client = new LimitlessClient();
@@ -38,10 +39,19 @@ function errorResult(err: unknown) {
   };
 }
 
-export function createMcpServer(): McpServer {
+export interface McpServerOptions {
+  /** Expose trading tools (place_bet, positions, redeem). Off by default. */
+  trading?: boolean;
+}
+
+export function tradingEnabledByEnv(): boolean {
+  return process.env.LIMITLESS_MCP_TRADING === "true";
+}
+
+export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const server = new McpServer({
     name: "limitless-markets",
-    version: "0.1.0",
+    version: "0.2.0",
   });
 
   server.registerTool(
@@ -160,6 +170,10 @@ export function createMcpServer(): McpServer {
       }
     },
   );
+
+  if (options.trading) {
+    registerTradingTools(server);
+  }
 
   return server;
 }

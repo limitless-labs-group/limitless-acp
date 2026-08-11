@@ -4,11 +4,14 @@
 process.env.LOG_DEST = "stderr";
 
 async function main() {
+  const { default: dotenv } = await import("dotenv");
+  dotenv.config();
+
   const { StdioServerTransport } =
     await import("@modelcontextprotocol/sdk/server/stdio.js");
-  const { createMcpServer } = await import("./server.js");
+  const { createMcpServer, tradingEnabledByEnv } = await import("./server.js");
 
-  const server = createMcpServer();
+  const server = createMcpServer({ trading: tradingEnabledByEnv() });
   await server.connect(new StdioServerTransport());
 }
 
