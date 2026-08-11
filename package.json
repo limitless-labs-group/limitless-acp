@@ -10,18 +10,23 @@
     "derive-token": "tsx src/scripts/deriveToken.ts",
     "smoke:buyer": "tsx src/scripts/buyerSmoke.ts",
     "smoke:seller": "tsx src/scripts/sellerSmoke.ts",
+    "mcp": "tsx src/mcp/stdio.ts",
+    "mcp:http": "tsx src/mcp/http.ts",
+    "smoke:mcp": "tsx src/scripts/mcpSmoke.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "dependencies": {
     "@account-kit/infra": "^4.88.4",
     "@limitless-exchange/sdk": "^1.0.11",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@virtuals-protocol/acp-node-v2": "^0.1.10",
     "dotenv": "^16.4.7",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
     "tsx": "^4.19.2",
-    "viem": "^2.23.2"
+    "viem": "^2.23.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

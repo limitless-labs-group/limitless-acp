@@ -115,6 +115,19 @@ Pre-approve a market venue (optional, happens lazily on first trade):
 npm run approve <market-slug>
 ```
 
+## MCP server (market data)
+
+An [MCP](https://modelcontextprotocol.io) server exposing public Limitless
+market data to any MCP client (Claude, ChatGPT, Cursor, agent frameworks).
+Read-only, no credentials required. Tools: `search_markets`,
+`get_active_markets`, `get_market`, `get_orderbook`.
+
+```bash
+npm run mcp        # stdio (local clients, e.g. `claude mcp add limitless -- npx tsx src/mcp/stdio.ts`)
+npm run mcp:http   # streamable HTTP on :3333 at /mcp (remote hosting; MCP_PORT to override)
+npm run smoke:mcp  # spawns the stdio server and exercises every tool
+```
+
 ## Architecture
 
 **Two-wallet setup:**
