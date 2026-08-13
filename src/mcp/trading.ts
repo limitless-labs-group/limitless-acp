@@ -61,7 +61,10 @@ export function registerTradingTools(server: McpServer): void {
     async () => {
       try {
         const { account } = getWallet();
-        const pc = createPublicClient({ chain: base, transport: http() });
+        const pc = createPublicClient({
+          chain: base,
+          transport: http(process.env.BASE_RPC_URL),
+        });
         const [eth, usdc] = await Promise.all([
           pc.getBalance({ address: account.address }),
           pc.readContract({

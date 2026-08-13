@@ -54,12 +54,12 @@ export class RedeemClient {
     this.account = privateKeyToAccount(privateKey);
     this.publicClient = createPublicClient({
       chain: base,
-      transport: http(),
+      transport: http(process.env.BASE_RPC_URL),
     });
     this.walletClient = createWalletClient({
       account: this.account,
       chain: base,
-      transport: http(),
+      transport: http(process.env.BASE_RPC_URL),
     });
   }
 

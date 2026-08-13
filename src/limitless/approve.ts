@@ -1,9 +1,4 @@
-import {
-  createPublicClient,
-  http,
-  parseAbi,
-  maxUint256,
-} from "viem";
+import { createPublicClient, http, parseAbi, maxUint256 } from "viem";
 import { base } from "viem/chains";
 import { getWallet } from "./wallet.js";
 import { LimitlessClient } from "./markets.js";
@@ -39,7 +34,10 @@ export async function ensureMarketApproved(marketSlug: string): Promise<void> {
   }
 
   const { client: walletClient, account } = getWallet();
-  const publicClient = createPublicClient({ chain: base, transport: http() });
+  const publicClient = createPublicClient({
+    chain: base,
+    transport: http(process.env.BASE_RPC_URL),
+  });
 
   await approveUsdc(
     publicClient,

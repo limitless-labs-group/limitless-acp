@@ -27,7 +27,7 @@ export function getWallet() {
   const client = createWalletClient({
     account,
     chain: base,
-    transport: http(),
+    transport: http(process.env.BASE_RPC_URL),
   }).extend(publicActions);
 
   logger.info({ address: account.address }, "Limitless trading wallet ready");
