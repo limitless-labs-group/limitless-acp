@@ -145,11 +145,73 @@ export class RedeemClient {
     return claimable;
   }
 
+  /**
+   * Redeems one market by slug. Resolves the market directly (not via the
+   * portfolio API, which stops listing resolved markets after a while) and
+   * reads CTF balances on-chain, so orphaned winning tokens stay claimable.
+   */
   async redeemSingle(
     marketSlug: string,
   ): Promise<{ txHash: string; payout: string }> {
-    const claimable = await this.scanRedeemable();
-    const position = claimable.find((p) => p.marketSlug === marketSlug);
+    const market = (await getSdkClient().markets.getMarket(
+      marketSlug,
+    )) as unknown as Record<string, unknown>;
+
+    const conditionId = market.conditionId as `0x${string}` | undefined;
+    if (!conditionId) {
+      throw new Error(`Market ${marketSlug} has no conditionId`);
+    }
+
+    const rawIds = (market.positionIds ??
+      (market.tokens
+        ? [
+            (market.tokens as Record<string, string>).yes,
+            (market.tokens as Record<string, string>).no,
+          ]
+        : undefined)) as string[] | undefined;
+    if (!rawIds || rawIds.length < 2) {
+      throw new Error(`Market ${marketSlug} has no position ids`);
+    }
+
+    const denominator = await this.publicClient.readContract({
+      address: CTF_ADDRESS,
+      abi: CTF_ABI,
+      functionName: "payoutDenominator",
+      args: [conditionId],
+    });
+    if (denominator === 0n) {
+      throw new Error(`Market ${marketSlug} is not resolved on-chain yet`);
+    }
+
+    let position: ClaimablePosition | undefined;
+    for (let i = 0; i < rawIds.length; i++) {
+      const balance = await this.publicClient.readContract({
+        address: CTF_ADDRESS,
+        abi: CTF_ABI,
+        functionName: "balanceOf",
+        args: [this.account.address, BigInt(rawIds[i])],
+      });
+      if (balance === 0n) continue;
+
+      const numerator = await this.publicClient.readContract({
+        address: CTF_ADDRESS,
+        abi: CTF_ABI,
+        functionName: "payoutNumerators",
+        args: [conditionId, BigInt(i)],
+      });
+      if (numerator === 0n) continue;
+
+      const payout = (balance * numerator) / denominator;
+      position = {
+        marketSlug,
+        marketTitle: (market.title as string) ?? marketSlug,
+        conditionId,
+        winningOutcomeIndex: i,
+        side: i === 0 ? "YES" : "NO",
+        balance,
+        expectedPayout: formatUnits(payout, 6),
+      };
+    }
 
     if (!position) {
       throw new Error(`No redeemable position found for market: ${marketSlug}`);

@@ -7,6 +7,7 @@
   "scripts": {
     "start": "tsx src/seller.ts",
     "approve": "tsx src/scripts/approve.ts",
+    "redeem": "tsx src/scripts/redeem.ts",
     "derive-token": "tsx src/scripts/deriveToken.ts",
     "smoke:buyer": "tsx src/scripts/buyerSmoke.ts",
     "smoke:seller": "tsx src/scripts/sellerSmoke.ts",
