@@ -35,9 +35,12 @@ class Semaphore {
   }
 }
 
+const DEDUPE_WINDOW_MS = 30_000;
+
 export class TradingClient {
   private lastOrderTime = 0;
   private orderSemaphore = new Semaphore(2);
+  private recentOrders = new Map<string, number>();
 
   constructor(private client: LimitlessClient = new LimitlessClient()) {}
 
@@ -47,6 +50,13 @@ export class TradingClient {
     limitPriceCents: number;
     usdAmount: number;
     orderType?: "GTC" | "FOK";
+    /**
+     * Stable identity for this order intent (e.g. the ACP job id). Two
+     * createOrder calls with the same key are treated as one intent: the
+     * second is rejected. Without a key, an identical
+     * market/side/amount/type fingerprint within 30s is rejected instead.
+     */
+    dedupeKey?: string;
   }): Promise<Record<string, unknown>> {
     const {
       marketSlug,
@@ -54,7 +64,25 @@ export class TradingClient {
       limitPriceCents,
       usdAmount,
       orderType = "FOK",
+      dedupeKey,
     } = params;
+
+    const key = dedupeKey ?? `${marketSlug}|${side}|${usdAmount}|${orderType}`;
+    const priorAt = this.recentOrders.get(key);
+    if (
+      priorAt !== undefined &&
+      (dedupeKey || Date.now() - priorAt < DEDUPE_WINDOW_MS)
+    ) {
+      throw new Error(
+        `Duplicate order suppressed (${key} already submitted ${Math.round(
+          (Date.now() - priorAt) / 1000,
+        )}s ago)`,
+      );
+    }
+    for (const [k, t] of this.recentOrders) {
+      if (Date.now() - t > 3_600_000) this.recentOrders.delete(k);
+    }
+    this.recentOrders.set(key, Date.now());
 
     await this.orderSemaphore.acquire();
     try {
@@ -70,6 +98,10 @@ export class TradingClient {
         usdAmount,
         orderType,
       });
+    } catch (err) {
+      // Failed submissions may be retried legitimately; free the key.
+      this.recentOrders.delete(key);
+      throw err;
     } finally {
       this.lastOrderTime = Date.now();
       this.orderSemaphore.release();

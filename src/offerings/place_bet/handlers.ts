@@ -96,6 +96,7 @@ export async function executeJob(
       limitPriceCents,
       usdAmount: tradeAmount,
       orderType,
+      dedupeKey: `acp-job-${context.jobId}`,
     });
 
     const orderId =
