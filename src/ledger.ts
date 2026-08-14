@@ -6,7 +6,10 @@ import crypto from "crypto";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const LEDGER_PATH = path.resolve(__dirname, "..", "ledger.json");
+// Overridable so containerized runs can point at a mounted volume.
+const LEDGER_PATH =
+  process.env.LEDGER_PATH?.trim() ||
+  path.resolve(__dirname, "..", "ledger.json");
 
 export interface LedgerEntry {
   id: string;
@@ -39,6 +42,7 @@ function readLedger(): Ledger {
 }
 
 function writeLedger(ledger: Ledger): void {
+  fs.mkdirSync(path.dirname(LEDGER_PATH), { recursive: true });
   fs.writeFileSync(LEDGER_PATH, JSON.stringify(ledger, null, 2) + "\n");
 }
 
@@ -74,9 +78,7 @@ export function getPositionsByBuyer(buyerAddress: string): LedgerEntry[] {
   );
 }
 
-export function getRedeemablePositions(
-  buyerAddress?: string,
-): LedgerEntry[] {
+export function getRedeemablePositions(buyerAddress?: string): LedgerEntry[] {
   const ledger = readLedger();
   return ledger.positions.filter((p) => {
     if (p.status !== "filled") return false;

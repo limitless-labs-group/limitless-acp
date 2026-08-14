@@ -298,6 +298,21 @@ async function main() {
   await agent.start(() => {
     logger.info("Seller runtime is running (ACP v2). Waiting for jobs...");
   });
+
+  // Optional liveness endpoint for container orchestration.
+  const healthPort = Number.parseInt(process.env.HEALTH_PORT || "", 10);
+  if (!Number.isNaN(healthPort)) {
+    const { createServer } = await import("node:http");
+    createServer((req, res) => {
+      if (req.url === "/healthz") {
+        res.writeHead(200, { "Content-Type": "text/plain" }).end("ok");
+      } else {
+        res.writeHead(404).end();
+      }
+    }).listen(healthPort, () => {
+      logger.info({ port: healthPort }, "Health endpoint listening");
+    });
+  }
 }
 
 main().catch((err) => {
