@@ -16,6 +16,7 @@ import { base } from "@account-kit/infra";
 import { loadOffering, listOfferings } from "./offeringLoader.js";
 import { getWallet } from "./limitless/wallet.js";
 import { getSdkClient } from "./limitless/sdk.js";
+import { startAcpWatchdog, type WatchdogState } from "./acpWatchdog.js";
 import { logger } from "./logger.js";
 import type { JobContext } from "./acpTypes.js";
 
@@ -295,24 +296,61 @@ async function main() {
     }
   });
 
-  await agent.start(() => {
-    logger.info("Seller runtime is running (ACP v2). Waiting for jobs...");
+  process.on("exit", (code) => {
+    logger.warn({ code }, "Seller process exiting");
   });
 
-  // Optional liveness endpoint for container orchestration.
+  // Liveness endpoint for container orchestration, bound BEFORE connecting so
+  // a hung ACP connect reports unhealthy instead of refusing connections.
+  // Reports ACP connection state, not just process liveness, so a
+  // disconnected pod is restarted rather than left running invisibly.
+  let connected = false;
+  let watchdog: WatchdogState | undefined;
+
   const healthPort = Number.parseInt(process.env.HEALTH_PORT || "", 10);
   if (!Number.isNaN(healthPort)) {
     const { createServer } = await import("node:http");
     createServer((req, res) => {
-      if (req.url === "/healthz") {
-        res.writeHead(200, { "Content-Type": "text/plain" }).end("ok");
-      } else {
+      if (req.url !== "/healthz") {
         res.writeHead(404).end();
+        return;
       }
+      const healthy = connected && watchdog?.online !== false;
+      res
+        .writeHead(healthy ? 200 : 503, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ connected, ...(watchdog ?? {}) }));
     }).listen(healthPort, () => {
       logger.info({ port: healthPort }, "Health endpoint listening");
     });
   }
+
+  // ACP's API can become unreachable, in which case start() never resolves.
+  // Fail fast so the supervisor retries rather than hanging offline forever.
+  const startTimeoutMs = Number.parseInt(
+    process.env.ACP_START_TIMEOUT_MS || "180000",
+    10,
+  );
+  await Promise.race([
+    agent.start(() => {
+      connected = true;
+      logger.info("Seller runtime is running (ACP v2). Waiting for jobs...");
+    }),
+    new Promise((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `ACP connect did not complete within ${startTimeoutMs}ms`,
+            ),
+          ),
+        startTimeoutMs,
+      ).unref(),
+    ),
+  ]);
+
+  // The SDK's SSE transport can close on a fatal error without surfacing it,
+  // which drops us out of ACP search and lets the process exit silently.
+  watchdog = startAcpWatchdog({ agentWalletAddress });
 }
 
 main().catch((err) => {

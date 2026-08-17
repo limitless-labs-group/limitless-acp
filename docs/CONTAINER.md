@@ -26,6 +26,36 @@ docker build -t limitless-acp .
    Kubernetes Secret (or External Secrets). `dotenv` no-ops when no `.env`
    file exists, so plain env vars flow through.
 
+## Uptime is discoverability
+
+ACP search only returns **online** agents, and an agent counts as online only
+while its event stream is connected. If the seller dies or silently loses the
+stream, the agent disappears from the marketplace. Two safeguards are built in:
+
+- **Start timeout** (`ACP_START_TIMEOUT_MS`, default 180000): if ACP's API is
+  unreachable, `start()` would otherwise hang forever. The process exits
+  non-zero instead so the supervisor retries.
+- **Watchdog**: polls ACP's own view of our online status every 60s and exits
+  non-zero after two consecutive confirmed-offline checks. Unreachable-API
+  checks are skipped, not counted, so a network blip is not a restart.
+
+`GET /healthz` (on `HEALTH_PORT`) returns **200** only when connected and
+online, **503** otherwise, and it binds before connecting — so a hung connect
+reports unhealthy rather than refusing connections. Pair it with
+`restartPolicy: Always` (the default) plus a startupProbe with a generous
+`failureThreshold` for the initial connect:
+
+```yaml
+startupProbe:
+  httpGet: { path: /healthz, port: 8080 }
+  periodSeconds: 10
+  failureThreshold: 30 # allow up to ~5 min for first ACP connect
+livenessProbe:
+  httpGet: { path: /healthz, port: 8080 }
+  periodSeconds: 30
+  failureThreshold: 3
+```
+
 ## Environment
 
 Seller (required): `SELLER_AGENT_WALLET_ADDRESS`, `ACP_WALLET_ID`,
