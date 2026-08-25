@@ -47,6 +47,9 @@ jobs:
           {
             echo 'tags<<EOF'
             echo "$IMAGE:sha-$GITHUB_SHA"
+            if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+              echo "$IMAGE:main"
+            fi
             if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
               echo "$IMAGE:$GITHUB_REF_NAME"
             fi
