@@ -1,9 +1,18 @@
-import { createWalletClient, http, publicActions } from "viem";
+import { createWalletClient, http } from "viem";
+import type { Chain, HttpTransport, WalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import type { PrivateKeyAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { logger } from "../logger.js";
 
-export function getWallet() {
+export interface TradingWallet {
+  client: WalletClient<HttpTransport, Chain, PrivateKeyAccount>;
+  account: PrivateKeyAccount;
+}
+
+// The inferred client type exceeds what TypeScript will serialize, so the
+// return type is annotated explicitly.
+export function getWallet(): TradingWallet {
   let privateKey = process.env.PRIVATE_KEY;
 
   if (!privateKey) {
@@ -24,11 +33,14 @@ export function getWallet() {
 
   const account = privateKeyToAccount(privateKey as `0x${string}`);
 
+  // No publicActions extension: callers that need reads make their own
+  // public client, and extending here inflates the inferred type past what
+  // TypeScript will serialize.
   const client = createWalletClient({
     account,
     chain: base,
     transport: http(process.env.BASE_RPC_URL),
-  }).extend(publicActions);
+  });
 
   logger.info({ address: account.address }, "Limitless trading wallet ready");
 
