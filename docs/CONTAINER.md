@@ -2,10 +2,10 @@
 
 One image, two runnable services:
 
-| Service                      | Command                   | Network                | Purpose                               |
-| ---------------------------- | ------------------------- | ---------------------- | ------------------------------------- |
-| **acp-seller** (default CMD) | `npx tsx src/seller.ts`   | Outbound only          | Sells offerings on Virtuals ACP       |
-| **mcp-server** (optional)    | `npx tsx src/mcp/http.ts` | Inbound `:3333` `/mcp` | Limitless MCP endpoint for AI clients |
+| Service                      | Command                                 | Network                | Purpose                               |
+| ---------------------------- | --------------------------------------- | ---------------------- | ------------------------------------- |
+| **acp-seller** (default CMD) | `node_modules/.bin/tsx src/seller.ts`   | Outbound only          | Sells offerings on Virtuals ACP       |
+| **mcp-server** (optional)    | `node_modules/.bin/tsx src/mcp/http.ts` | Inbound `:3333` `/mcp` | Limitless MCP endpoint for AI clients |
 
 ```bash
 docker build -t limitless-acp .
@@ -20,7 +20,11 @@ docker build -t limitless-acp .
    `LEDGER_PATH` (image default `/data/ledger.json`). Mount a small PVC
    (1Gi, ReadWriteOnce) at `/data`. Seed it with the current `ledger.json`
    from the previous host at cutover.
-3. **Secrets via env, never in the image.** All keys from `.env.example`;
+3. **Writable `/tmp` if `readOnlyRootFilesystem: true`.** tsx creates a temp
+   directory at startup and exits if it cannot. Mount an `emptyDir` at
+   `/tmp`. The image runs as the base image's `node` user (uid/gid 1000),
+   matching `runAsUser`/`runAsGroup`/`fsGroup: 1000`.
+4. **Secrets via env, never in the image.** All keys from `.env.example`;
    the sensitive ones are `PRIVATE_KEY` (hot wallet, ~$30),
    `ACP_SIGNER_PRIVATE_KEY`, `LIMITLESS_HMAC_TOKEN_ID`/`SECRET`. Use a
    Kubernetes Secret (or External Secrets). `dotenv` no-ops when no `.env`
@@ -121,13 +125,17 @@ spec:
           volumeMounts:
             - name: ledger
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ledger
           persistentVolumeClaim: { claimName: acp-seller-ledger }
+        - name: tmp
+          emptyDir: {}
 ```
 
 MCP server (market-data mode) is stateless: same image with
-`command: ["npx", "tsx", "src/mcp/http.ts"]`, no volume, N replicas fine,
+`command: ["node_modules/.bin/tsx", "src/mcp/http.ts"]`, no volume, N replicas fine,
 plus a Service/Ingress on port 3333 (`/healthz` for probes). Target host:
 `mcp.limitless.exchange`.
 
