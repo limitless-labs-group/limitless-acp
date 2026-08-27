@@ -20,10 +20,13 @@ docker build -t limitless-acp .
    `LEDGER_PATH` (image default `/data/ledger.json`). Mount a small PVC
    (1Gi, ReadWriteOnce) at `/data`. Seed it with the current `ledger.json`
    from the previous host at cutover.
-3. **Writable `/tmp` if `readOnlyRootFilesystem: true`.** tsx creates a temp
-   directory at startup and exits if it cannot. Mount an `emptyDir` at
-   `/tmp`. The image runs as the base image's `node` user (uid/gid 1000),
-   matching `runAsUser`/`runAsGroup`/`fsGroup: 1000`.
+3. **`readOnlyRootFilesystem: true` is supported as-is.** tsx needs a
+   writable temp directory at startup; the entrypoint uses `/tmp` when it is
+   writable and otherwise falls back to a `tmp/` directory beside the ledger
+   on the data volume. Mounting an `emptyDir` at `/tmp` is still preferred
+   (keeps temp files off network storage) but is not required. The image runs
+   as the base image's `node` user (uid/gid 1000), matching
+   `runAsUser`/`runAsGroup`/`fsGroup: 1000`.
 4. **Secrets via env, never in the image.** All keys from `.env.example`;
    the sensitive ones are `PRIVATE_KEY` (hot wallet, ~$30),
    `ACP_SIGNER_PRIVATE_KEY`, `LIMITLESS_HMAC_TOKEN_ID`/`SECRET`. Use a
